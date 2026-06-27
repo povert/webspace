@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据分析工作台</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header">
+            <div class="header-left">
+                <h1 class="logo">📊 数据分析工作台</h1>
+                <div class="workspace-selector" id="workspaceSelector">
+                    <button class="ws-btn" id="wsCurrentBtn">📁 Default</button>
+                    <div class="ws-dropdown" id="wsDropdown"></div>
+                </div>
+            </div>
+            <div class="header-right">
+                <button class="icon-btn" onclick="refreshAll()" title="刷新">🔄</button>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <div id="main">
+            <!-- Sidebar -->
+            <nav id="sidebar">
+                <div class="nav-items">
+                    <div class="nav-item active" data-category="data" onclick="switchCategory('data')">
+                        <span class="nav-icon">📊</span>
+                        <span class="nav-label">数据</span>
+                        <span class="nav-badge" id="badge-data">0</span>
+                    </div>
+                    <div class="nav-item" data-category="scripts" onclick="switchCategory('scripts')">
+                        <span class="nav-icon">📜</span>
+                        <span class="nav-label">脚本</span>
+                        <span class="nav-badge" id="badge-scripts">0</span>
+                    </div>
+                    <div class="nav-item" data-category="reports" onclick="switchCategory('reports')">
+                        <span class="nav-icon">📈</span>
+                        <span class="nav-label">报表</span>
+                        <span class="nav-badge" id="badge-reports">0</span>
+                    </div>
+                </div>
+                <div class="nav-footer">
+                    <div class="nav-item" onclick="openWorkspaceManager()">
+                        <span class="nav-icon">⚙️</span>
+                        <span class="nav-label">工作空间管理</span>
+                    </div>
+                </div>
+            </nav>
+
+            <!-- Content Area -->
+            <div id="content">
+                <!-- Breadcrumb + Toolbar -->
+                <div id="toolbar">
+                    <div id="breadcrumb"></div>
+                    <div class="toolbar-actions">
+                        <button class="tool-btn" onclick="createFolder()">📁+ 新建文件夹</button>
+                        <button class="view-toggle" id="viewToggle">
+                            <button class="view-btn active" data-view="grid" onclick="setView('grid')">⊞</button>
+                            <button class="view-btn" data-view="list" onclick="setView('list')">☰</button>
+                        </button>
+                    </div>
+                </div>
+                <!-- File Browser -->
+                <div id="fileBrowser" class="grid-view"></div>
+                <!-- Execution Console (inside content) -->
+                <div id="console-panel" class="collapsed">
+                    <div class="console-header">
+                        <span>⚪ 执行控制台</span>
+                        <div class="console-actions">
+                            <button class="console-btn" onclick="stopExecution()" id="stopBtn" disabled>⏹ 停止</button>
+                            <button class="console-btn" onclick="clearConsole()">🗑 清除</button>
+                            <button class="console-btn" onclick="toggleConsole()">▼ 收起</button>
+                        </div>
+                    </div>
+                    <div class="console-progress" id="consoleProgress" style="display:none">
+                        <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                        <span class="progress-text" id="progressText">0%</span>
+                    </div>
+                    <div class="console-log" id="consoleLog"></div>
+                    <div class="console-history" id="consoleHistory"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modals -->
+        <div class="modal-overlay" id="modalOverlay" onclick="closeModal(event)">
+            <div class="modal" id="modal" onclick="event.stopPropagation()">
+                <div class="modal-header" id="modalHeader">
+                    <h3 id="modalTitle"></h3>
+                    <button class="modal-close" onclick="closeModal()">×</button>
+                </div>
+                <div class="modal-body" id="modalBody"></div>
+                <div class="modal-footer" id="modalFooter"></div>
+            </div>
+        </div>
+    </div>
+    <script src="/static/app.js"></script>
+</body>
+</html>
