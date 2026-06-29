@@ -1,6 +1,6 @@
 let state = {
     workspace: 'Default',
-    category: 'data',
+    category: 'scripts',
     currentPath: '',
     files: [],
     view: 'grid',
@@ -9,10 +9,10 @@ let state = {
     abortController: null,
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
     loadWorkspaces();
     loadFiles();
-    document.querySelector('.console-header').addEventListener('click', (e) => {
+    document.querySelector('.console-header').addEventListener('click', function(e) {
         if (e.target.closest('.console-btn')) return;
         toggleConsole();
     });
@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 async function loadWorkspaces() {
     try {
-        const res = await fetch('/api/workspaces');
+        var res = await fetch('/api/workspaces');
         state.workspaces = await res.json();
         renderWorkspaceSelector();
         updateBadges();
@@ -28,13 +28,13 @@ async function loadWorkspaces() {
 }
 
 function renderWorkspaceSelector() {
-    const btn = document.getElementById('wsCurrentBtn');
+    var btn = document.getElementById('wsCurrentBtn');
     btn.textContent = '\u{1F4C1} ' + state.workspace;
-    const dropdown = document.getElementById('wsDropdown');
-    let html = state.workspaces.map(ws =>
-        '<div class="ws-item ' + (ws.name === state.workspace ? 'active' : '') +
-        '" onclick="switchWorkspace(\'' + ws.name + '\')">\u{1F4C1} ' + ws.name + '</div>'
-    ).join('');
+    var dropdown = document.getElementById('wsDropdown');
+    var html = state.workspaces.map(function(ws) {
+        return '<div class="ws-item ' + (ws.name === state.workspace ? 'active' : '') +
+            '" onclick="switchWorkspace(\'' + ws.name + '\')">\u{1F4C1} ' + ws.name + '</div>';
+    }).join('');
     html += '<div class="ws-divider"></div>';
     html += '<div class="ws-item manage" onclick="closeDropdown();openWorkspaceManager()">\u2699\uFE0F 管理工作空间...</div>';
     dropdown.innerHTML = html;
@@ -141,12 +141,32 @@ function getFileIcon(f) {
     return icons[ext] || '\u{1F4CE}';
 }
 
+function getClickAction(f) {
+    if (f.isDir) return 'enterDir(\'' + escapeAttr(f.name) + '\')';
+    var ext = f.name.split('.').pop().toLowerCase();
+    if (state.category === 'reports' && ext === 'html') {
+        return 'openReport(\'' + escapeAttr(f.path) + '\',\'' + ext + '\')';
+    }
+    return 'previewFile(\'' + escapeAttr(f.path) + '\')';
+}
+
 function renderGridItem(f) {
     var icon = getFileIcon(f);
     var actions = getActions(f);
+    var clickAction = getClickAction(f);
+    var linkedBtn = '';
+    if (state.category === 'scripts' && !f.isDir && f.name.endsWith('.py')) {
+        linkedBtn = '<button class="linked-btn" onclick="event.stopPropagation();showLinkedReports(\'script\',\'' + escapeAttr(f.path) + '\')" title="关联报表">\u{1F517}</button>';
+    } else if (state.category === 'data' && !f.isDir) {
+        linkedBtn = '<button class="linked-btn" onclick="event.stopPropagation();showLinkedReports(\'file\',\'data/' + escapeAttr(f.path) + '\')" title="关联报表">\u{1F517}</button>';
+    } else if (state.category === 'reports' && !f.isDir && f.name.endsWith('.html')) {
+        linkedBtn = '<button class="linked-btn" onclick="event.stopPropagation();showReportMeta(\'' + escapeAttr(f.path) + '\')" title="元数据">\u2139\uFE0F</button>';
+    }
     return '<div class="file-card ' + (f.isDir ? 'is-dir' : '') + '" draggable="true" data-name="' + escapeAttr(f.name) +
         '" data-isdir="' + f.isDir + '" data-path="' + escapeAttr(f.path) +
-        '"' + (f.isDir ? ' ondblclick="enterDir(\'' + escapeAttr(f.name) + '\')"' : '') + '>' +
+        '" onclick="' + clickAction + '"' +
+        (f.isDir ? ' ondblclick="enterDir(\'' + escapeAttr(f.name) + '\')"' : '') + '>' +
+        linkedBtn +
         '<div class="file-icon">' + icon + '</div>' +
         '<div class="file-name" title="' + escapeAttr(f.name) + '">' + escapeHtml(f.name) + '</div>' +
         '<div class="file-meta">' + (f.isDir ? '文件夹' : (f.sizeStr + ' · ' + f.modified)) + '</div>' +
@@ -157,14 +177,24 @@ function renderGridItem(f) {
 function renderListItem(f) {
     var icon = getFileIcon(f);
     var actions = getActions(f);
+    var clickAction = getClickAction(f);
+    var linkedBtn = '';
+    if (state.category === 'scripts' && !f.isDir && f.name.endsWith('.py')) {
+        linkedBtn = '<button class="linked-btn-inline" onclick="event.stopPropagation();showLinkedReports(\'script\',\'' + escapeAttr(f.path) + '\')" title="关联报表">\u{1F517}</button>';
+    } else if (state.category === 'data' && !f.isDir) {
+        linkedBtn = '<button class="linked-btn-inline" onclick="event.stopPropagation();showLinkedReports(\'file\',\'data/' + escapeAttr(f.path) + '\')" title="关联报表">\u{1F517}</button>';
+    } else if (state.category === 'reports' && !f.isDir && f.name.endsWith('.html')) {
+        linkedBtn = '<button class="linked-btn-inline" onclick="event.stopPropagation();showReportMeta(\'' + escapeAttr(f.path) + '\')" title="元数据">\u2139\uFE0F</button>';
+    }
     return '<div class="list-row ' + (f.isDir ? 'is-dir' : '') + '" draggable="true" data-name="' + escapeAttr(f.name) +
         '" data-isdir="' + f.isDir + '" data-path="' + escapeAttr(f.path) +
-        '"' + (f.isDir ? ' ondblclick="enterDir(\'' + escapeAttr(f.name) + '\')"' : '') + '>' +
+        '" onclick="' + clickAction + '"' +
+        (f.isDir ? ' ondblclick="enterDir(\'' + escapeAttr(f.name) + '\')"' : '') + '>' +
         '<span>' + icon + '</span>' +
         '<div class="file-name-cell"><span title="' + escapeAttr(f.name) + '">' + escapeHtml(f.name) + '</span></div>' +
         '<span style="color:var(--text-muted);font-size:12px">' + (f.isDir ? '\u2014' : f.sizeStr) + '</span>' +
         '<span style="color:var(--text-muted);font-size:12px">' + f.modified + '</span>' +
-        '<div class="list-actions">' + actions + '</div>' +
+        '<div class="list-actions">' + linkedBtn + actions + '</div>' +
         '</div>';
 }
 
@@ -173,22 +203,22 @@ function getActions(f) {
     var safeName = escapeAttr(f.name);
     var safePath = escapeAttr(f.path);
     if (f.isDir) {
-        actions.push('<button class="action-btn" onclick="enterDir(\'' + safeName + '\')" title="进入">\u{1F4C2}</button>');
-        actions.push('<button class="action-btn" onclick="renameItem(\'' + safeName + '\')" title="重命名">\u270F\uFE0F</button>');
-        actions.push('<button class="action-btn danger" onclick="deleteItem(\'' + safeName + '\')" title="删除">\u{1F5D1}</button>');
+        actions.push('<button class="action-btn" onclick="event.stopPropagation();enterDir(\'' + safeName + '\')" title="进入">\u{1F4C2}</button>');
+        actions.push('<button class="action-btn" onclick="event.stopPropagation();renameItem(\'' + safeName + '\')" title="重命名">\u270F\uFE0F</button>');
+        actions.push('<button class="action-btn danger" onclick="event.stopPropagation();deleteItem(\'' + safeName + '\')" title="删除">\u{1F5D1}</button>');
     } else {
         var ext = f.name.split('.').pop().toLowerCase();
         if (state.category === 'scripts' && ext === 'py') {
-            actions.push('<button class="action-btn" onclick="editFile(\'' + safePath + '\')" title="编辑">\u270F\uFE0F</button>');
-            actions.push('<button class="action-btn" onclick="executeScript(\'' + safePath + '\')" title="执行">\u25B6</button>');
+            actions.push('<button class="action-btn" onclick="event.stopPropagation();editFile(\'' + safePath + '\')" title="编辑">\u270F\uFE0F</button>');
+            actions.push('<button class="action-btn" onclick="event.stopPropagation();executeScript(\'' + safePath + '\')" title="执行">\u25B6</button>');
         } else if (state.category === 'reports') {
-            actions.push('<button class="action-btn" onclick="openReport(\'' + safePath + '\',\'' + ext + '\')" title="打开">\u{1F441}</button>');
-            actions.push('<button class="action-btn" onclick="rerunReport(\'' + safePath + '\')" title="重跑">\u{1F504}</button>');
+            actions.push('<button class="action-btn" onclick="event.stopPropagation();openReport(\'' + safePath + '\',\'' + ext + '\')" title="打开">\u{1F441}</button>');
+            actions.push('<button class="action-btn" onclick="event.stopPropagation();rerunReport(\'' + safePath + '\')" title="重跑">\u{1F504}</button>');
         } else {
-            actions.push('<button class="action-btn" onclick="previewFile(\'' + safePath + '\')" title="预览">\u{1F441}</button>');
+            actions.push('<button class="action-btn" onclick="event.stopPropagation();previewFile(\'' + safePath + '\')" title="预览">\u{1F441}</button>');
         }
-        actions.push('<button class="action-btn" onclick="renameItem(\'' + safeName + '\')" title="重命名">\u{1F524}</button>');
-        actions.push('<button class="action-btn danger" onclick="deleteItem(\'' + safeName + '\')" title="删除">\u{1F5D1}</button>');
+        actions.push('<button class="action-btn" onclick="event.stopPropagation();renameItem(\'' + safeName + '\')" title="重命名">\u{1F524}</button>');
+        actions.push('<button class="action-btn danger" onclick="event.stopPropagation();deleteItem(\'' + safeName + '\')" title="删除">\u{1F5D1}</button>');
     }
     return actions.join('');
 }
@@ -252,12 +282,9 @@ async function previewFile(path) {
         '&path=' + encodeURIComponent(path));
     var data = await res.json();
     if (data.error) { alert(data.error); return; }
-
     var body = document.getElementById('modalBody');
     var content = data.content;
-    if (data.truncated) {
-        content = '\u26A0 文件较大，已截断显示\n\n' + content;
-    }
+    if (data.truncated) content = '\u26A0 文件较大，已截断显示\n\n' + content;
     if (data.extension === '.csv') {
         content = renderCSVTable(data.content);
     } else if (data.extension === '.json') {
@@ -265,10 +292,8 @@ async function previewFile(path) {
     }
     var sizeStr = data.size >= 1048576 ? (data.size/1048576).toFixed(1) + ' MB' : (data.size/1024).toFixed(1) + ' KB';
     body.innerHTML =
-        '<div class="modal-info-bar">' +
-            '<span>' + escapeHtml(data.name) + ' · ' + sizeStr + '</span>' +
-            '<span class="readonly-badge">\u{1F512} 只读</span>' +
-        '</div>' +
+        '<div class="modal-info-bar"><span>' + escapeHtml(data.name) + ' · ' + sizeStr + '</span>' +
+        '<span class="readonly-badge">\u{1F512} 只读</span></div>' +
         '<div class="preview-content">' + (data.extension === '.csv' ? content : escapeHtml(content)) + '</div>';
     document.getElementById('modalFooter').innerHTML = '';
     showModal(data.name);
@@ -282,25 +307,19 @@ function renderCSVTable(csv) {
     for (var i = 1; i < Math.min(lines.length, 101); i++) {
         html += '<tr>' + lines[i].split(',').map(function(c) { return '<td>' + escapeHtml(c) + '</td>'; }).join('') + '</tr>';
     }
-    if (lines.length > 101) {
-        html += '<tr><td colspan="' + headers.length + '" style="text-align:center;color:var(--text-muted)">... 共 ' + (lines.length - 1) + ' 行</td></tr>';
-    }
+    if (lines.length > 101) html += '<tr><td colspan="' + headers.length + '" style="text-align:center;color:var(--text-muted)">... 共 ' + (lines.length - 1) + ' 行</td></tr>';
     html += '</tbody></table>';
     return html;
 }
 
 async function editFile(path) {
-    var res = await fetch('/api/file/preview?workspace=' + encodeURIComponent(state.workspace) +
-        '&category=scripts&path=' + encodeURIComponent(path));
+    var res = await fetch('/api/file/preview?workspace=' + encodeURIComponent(state.workspace) + '&category=scripts&path=' + encodeURIComponent(path));
     var data = await res.json();
     if (data.error) { alert(data.error); return; }
-
     var body = document.getElementById('modalBody');
     body.innerHTML =
-        '<div class="modal-info-bar">' +
-            '<span>' + escapeHtml(data.name) + '</span>' +
-            '<span class="readonly-badge" style="background:rgba(63,185,80,0.1);color:var(--success)">\u270F\uFE0F 编辑</span>' +
-        '</div>' +
+        '<div class="modal-info-bar"><span>' + escapeHtml(data.name) + '</span>' +
+        '<span class="readonly-badge" style="background:rgba(63,185,80,0.1);color:var(--success)">\u270F\uFE0F 编辑</span></div>' +
         '<textarea class="code-editor" id="codeEditor">' + escapeHtml(data.content) + '</textarea>' +
         '<div class="save-status" id="saveStatus"></div>';
     showModal(data.name,
@@ -318,60 +337,37 @@ async function saveFile(path) {
         body: JSON.stringify({workspace: state.workspace, category: 'scripts', path: path, content: content})
     });
     var data = await res.json();
-    if (data.ok) {
-        status.textContent = '\u2705 已保存';
-        status.style.color = 'var(--success)';
-        setTimeout(function() { status.textContent = ''; }, 2000);
-    } else {
-        status.textContent = '\u274C 保存失败: ' + (data.error || '');
-        status.style.color = 'var(--danger)';
-    }
+    if (data.ok) { status.textContent = '\u2705 已保存'; status.style.color = 'var(--success)'; setTimeout(function() { status.textContent = ''; }, 2000); }
+    else { status.textContent = '\u274C 保存失败: ' + (data.error || ''); status.style.color = 'var(--danger)'; }
 }
 
 async function executeScript(path) {
     var metaRes = await fetch('/api/script/meta?workspace=' + encodeURIComponent(state.workspace) + '&path=' + encodeURIComponent(path));
     var meta = await metaRes.json();
     if (meta.error) { alert(meta.error); return; }
-
-    if (!meta.params || meta.params.length === 0) {
-        startExecution(path, {});
-        return;
-    }
-
+    if (!meta.params || meta.params.length === 0) { startExecution(path, {}); return; }
     var body = document.getElementById('modalBody');
     var paramsHtml = '';
-    if (meta.description) {
-        paramsHtml += '<div class="param-desc">' + escapeHtml(meta.description) + '</div>';
-    }
+    if (meta.description) paramsHtml += '<div class="param-desc">' + escapeHtml(meta.description) + '</div>';
     for (var i = 0; i < meta.params.length; i++) {
         var p = meta.params[i];
         paramsHtml += '<div class="form-group"><label>' + escapeHtml(p.label || p.name) + '</label>';
         if (p.type === 'choice' && p.choices) {
             paramsHtml += '<select class="form-input" data-param="' + escapeAttr(p.name) + '">';
-            for (var j = 0; j < p.choices.length; j++) {
-                paramsHtml += '<option value="' + escapeAttr(p.choices[j]) + '">' + escapeHtml(p.choices[j]) + '</option>';
-            }
+            for (var j = 0; j < p.choices.length; j++) paramsHtml += '<option value="' + escapeAttr(p.choices[j]) + '">' + escapeHtml(p.choices[j]) + '</option>';
             paramsHtml += '</select>';
         } else if (p.type === 'file') {
             var fileRes = await fetch('/api/file/list?workspace=' + encodeURIComponent(state.workspace) + '&category=data&path=' + encodeURIComponent(p.path || ''));
             var files = await fileRes.json();
             var fileOptions = [];
-            for (var k = 0; k < files.length; k++) {
-                if (!files[k].isDir) fileOptions.push({v: files[k].path, n: files[k].name});
-            }
-            paramsHtml += '<div class="custom-select-wrap">';
-            paramsHtml += '<input class="form-input custom-select-input" data-param="' + escapeAttr(p.name) + '" data-param-type="file" data-options=\'' + JSON.stringify(fileOptions) + '\' value="' + escapeAttr(p.default || '') + '" placeholder="选择或输入文件路径" autocomplete="off">';
-            paramsHtml += '<div class="custom-select-dropdown"></div></div>';
+            for (var k = 0; k < files.length; k++) { if (!files[k].isDir) fileOptions.push({v: files[k].path, n: files[k].name}); }
+            paramsHtml += '<div class="custom-select-wrap"><input class="form-input custom-select-input" data-param="' + escapeAttr(p.name) + '" data-param-type="file" data-options=\'' + JSON.stringify(fileOptions) + '\' value="' + escapeAttr(p.default || '') + '" placeholder="选择或输入文件路径" autocomplete="off"><div class="custom-select-dropdown"></div></div>';
         } else if (p.type === 'dir') {
             var dirRes = await fetch('/api/file/list?workspace=' + encodeURIComponent(state.workspace) + '&category=data&path=' + encodeURIComponent(p.path || ''));
             var dirs = await dirRes.json();
             var dirOptions = [];
-            for (var d = 0; d < dirs.length; d++) {
-                if (dirs[d].isDir) dirOptions.push({v: dirs[d].path, n: dirs[d].name + '/'});
-            }
-            paramsHtml += '<div class="custom-select-wrap">';
-            paramsHtml += '<input class="form-input custom-select-input" data-param="' + escapeAttr(p.name) + '" data-param-type="dir" data-options=\'' + JSON.stringify(dirOptions) + '\' value="" placeholder="选择或输入目录路径" autocomplete="off">';
-            paramsHtml += '<div class="custom-select-dropdown"></div></div>';
+            for (var d = 0; d < dirs.length; d++) { if (dirs[d].isDir) dirOptions.push({v: dirs[d].path, n: dirs[d].name + '/'}); }
+            paramsHtml += '<div class="custom-select-wrap"><input class="form-input custom-select-input" data-param="' + escapeAttr(p.name) + '" data-param-type="dir" data-options=\'' + JSON.stringify(dirOptions) + '\' value="" placeholder="选择或输入目录路径" autocomplete="off"><div class="custom-select-dropdown"></div></div>';
         } else {
             paramsHtml += '<input class="form-input" type="text" data-param="' + escapeAttr(p.name) + '" value="' + escapeAttr(p.default || '') + '" placeholder="' + escapeAttr(p.placeholder || '') + '">';
         }
@@ -388,9 +384,7 @@ async function executeScript(path) {
             if (val) {
                 var paramType = el.dataset.paramType;
                 if (paramType === 'file' || paramType === 'dir') {
-                    if (!val.startsWith('data/') && !val.startsWith('scripts/')) {
-                        val = 'data/' + val;
-                    }
+                    if (!val.startsWith('data/') && !val.startsWith('scripts/')) val = 'data/' + val;
                 }
                 params[el.dataset.param] = val;
             }
@@ -401,11 +395,8 @@ async function executeScript(path) {
 }
 
 function startExecution(path, params) {
-    if (state.abortController) {
-        state.abortController.abort();
-    }
+    if (state.abortController) state.abortController.abort();
     state.abortController = new AbortController();
-
     var panel = document.getElementById('console-panel');
     panel.classList.remove('collapsed');
     document.getElementById('stopBtn').disabled = false;
@@ -413,6 +404,7 @@ function startExecution(path, params) {
     document.getElementById('progressFill').style.width = '0%';
     document.getElementById('progressText').textContent = '0%';
     document.getElementById('consoleLog').innerHTML = '';
+    appendLog('\u25B6 开始执行: scripts/' + path.split('/').pop(), '');
 
     fetch('/api/script/execute', {
         method: 'POST',
@@ -423,14 +415,9 @@ function startExecution(path, params) {
         var reader = response.body.getReader();
         var decoder = new TextDecoder();
         var buffer = '';
-
         function read() {
             return reader.read().then(function(result) {
-                if (result.done) {
-                    document.getElementById('stopBtn').disabled = true;
-                    state.abortController = null;
-                    return;
-                }
+                if (result.done) { document.getElementById('stopBtn').disabled = true; state.abortController = null; return; }
                 buffer += decoder.decode(result.value, {stream: true});
                 var parts = buffer.split('\n');
                 buffer = parts.pop();
@@ -438,27 +425,13 @@ function startExecution(path, params) {
                     var line = parts[i].trim();
                     if (!line.startsWith('data: ')) continue;
                     var payload = line.slice(6);
-                    if (payload === '[DONE]') {
-                        document.getElementById('stopBtn').disabled = true;
-                        state.abortController = null;
-                        updateHistory(path, 'success');
-                        loadFiles();
-                        return;
-                    }
+                    if (payload === '[DONE]') { document.getElementById('stopBtn').disabled = true; state.abortController = null; updateHistory(path, 'success'); loadFiles(); return; }
                     try {
                         var msg = JSON.parse(payload);
                         if (msg.msg) appendLog(msg.msg, msg.status || '');
-                        if (msg.progress !== undefined) {
-                            var pct = Math.round(msg.progress * 100);
-                            document.getElementById('progressFill').style.width = pct + '%';
-                            document.getElementById('progressText').textContent = pct + '%';
-                        }
-                        if (msg.status === 'success') {
-                            updateHistory(path, 'success');
-                        }
-                        if (msg.status === 'error') {
-                            updateHistory(path, 'error');
-                        }
+                        if (msg.progress !== undefined) { var pct = Math.round(msg.progress * 100); document.getElementById('progressFill').style.width = pct + '%'; document.getElementById('progressText').textContent = pct + '%'; }
+                        if (msg.status === 'success') updateHistory(path, 'success');
+                        if (msg.status === 'error') updateHistory(path, 'error');
                     } catch(e) {}
                 }
                 return read();
@@ -466,11 +439,8 @@ function startExecution(path, params) {
         }
         return read();
     }).catch(function(err) {
-        if (err.name === 'AbortError') {
-            appendLog('\u23F9 已停止执行', 'error');
-        } else {
-            appendLog('\u274C 连接错误: ' + err.message, 'error');
-        }
+        if (err.name === 'AbortError') appendLog('\u23F9 已停止执行', 'error');
+        else appendLog('\u274C 连接错误: ' + err.message, 'error');
         document.getElementById('stopBtn').disabled = true;
         state.abortController = null;
     });
@@ -480,11 +450,8 @@ function appendLog(msg, status) {
     if (!msg) return;
     var log = document.getElementById('consoleLog');
     var line = document.createElement('div');
-    line.className = 'log-line';
-    if (status === 'error') line.className += ' log-error';
-    if (status === 'success') line.className += ' log-success';
-    var time = new Date().toLocaleTimeString('zh-CN', {hour12: false});
-    line.textContent = '[' + time + '] ' + msg;
+    line.className = 'log-line' + (status === 'error' ? ' log-error' : '') + (status === 'success' ? ' log-success' : '');
+    line.textContent = '[' + new Date().toLocaleTimeString('zh-CN', {hour12: false}) + '] ' + msg;
     log.appendChild(line);
     log.scrollTop = log.scrollHeight;
 }
@@ -492,8 +459,7 @@ function appendLog(msg, status) {
 function updateHistory(path, status) {
     var name = path.split('/').pop();
     var time = new Date().toLocaleTimeString('zh-CN', {hour12: false, hour: '2-digit', minute: '2-digit'});
-    var icon = status === 'success' ? '\u2705' : '\u274C';
-    state.executionHistory.unshift({name: name, time: time, icon: icon, status: status});
+    state.executionHistory.unshift({name: name, time: time, icon: status === 'success' ? '\u2705' : '\u274C', status: status});
     if (state.executionHistory.length > 10) state.executionHistory.pop();
     renderHistory();
 }
@@ -502,15 +468,12 @@ function renderHistory() {
     var el = document.getElementById('consoleHistory');
     if (state.executionHistory.length === 0) { el.innerHTML = ''; return; }
     el.innerHTML = '执行历史: ' + state.executionHistory.map(function(h) {
-        return '<span style="margin-right:8px;cursor:pointer">' + h.icon + ' ' + h.name + ' ' + h.time + '</span>';
+        return '<span style="margin-right:8px">' + h.icon + ' ' + h.name + ' ' + h.time + '</span>';
     }).join('');
 }
 
 function stopExecution() {
-    if (state.abortController) {
-        state.abortController.abort();
-        state.abortController = null;
-    }
+    if (state.abortController) { state.abortController.abort(); state.abortController = null; }
     fetch('/api/script/stop', {method: 'POST'});
     document.getElementById('stopBtn').disabled = true;
     appendLog('\u23F9 已停止执行', 'error');
@@ -529,41 +492,78 @@ function toggleConsole() {
     var panel = document.getElementById('console-panel');
     var btn = panel.querySelector('.console-actions .console-btn:last-child');
     panel.classList.toggle('collapsed');
-    if (panel.classList.contains('collapsed')) {
-        btn.textContent = '\u25B2 展开';
-    } else {
-        btn.textContent = '\u25BC 收起';
-    }
+    btn.textContent = panel.classList.contains('collapsed') ? '\u25B2 展开' : '\u25BC 收起';
 }
 
 function openReport(path, ext) {
-    var url = '/api/report/view?workspace=' + encodeURIComponent(state.workspace) + '&path=' + encodeURIComponent(path);
-    if (ext === 'html') {
-        window.open(url, '_blank');
-    } else if (ext === 'csv' || ext === 'xls' || ext === 'xlsx') {
-        window.open(url, '_blank');
-    } else if (ext === 'json') {
-        window.open(url, '_blank');
-    } else {
-        window.open(url, '_blank');
-    }
+    window.open('/api/report/view?workspace=' + encodeURIComponent(state.workspace) + '&path=' + encodeURIComponent(path), '_blank');
 }
 
-function rerunReport(path) {
-    var metaRes = fetch('/api/report/meta?workspace=' + encodeURIComponent(state.workspace) + '&path=' + encodeURIComponent(path));
-    metaRes.then(function(r) { return r.json(); }).then(function(meta) {
-        if (meta && meta.script) {
-            switchCategory('scripts');
-            setTimeout(function() { executeScript(meta.script); }, 300);
-        } else {
-            alert('未找到该报表的脚本关联信息，无法重跑');
+async function rerunReport(path) {
+    var metaRes = await fetch('/api/report/meta?workspace=' + encodeURIComponent(state.workspace) + '&path=' + encodeURIComponent(path));
+    var meta = await metaRes.json();
+    if (meta && meta.script) { switchCategory('scripts'); setTimeout(function() { executeScript(meta.script); }, 300); }
+    else alert('未找到该报表的脚本关联信息，无法重跑');
+}
+
+async function showLinkedReports(queryType, query) {
+    var res = await fetch('/api/linked-reports?workspace=' + encodeURIComponent(state.workspace) + '&type=' + encodeURIComponent(queryType) + '&query=' + encodeURIComponent(query));
+    var reports = await res.json();
+    var body = document.getElementById('modalBody');
+    if (reports.length === 0) {
+        body.innerHTML = '<div class="empty-state" style="padding:30px"><div class="empty-icon">\u{1F4CB}</div><div>暂无关联报表</div></div>';
+    } else {
+        var html = '<div class="linked-list">';
+        reports.forEach(function(r) {
+            var detailText = '';
+            if (queryType === 'script') {
+                detailText = '\u{1F4CA} 数据: ' + (r.data_files || []).join(', ');
+            } else {
+                detailText = '\u{1F40D} 脚本: scripts/' + r.script;
+            }
+            html += '<div class="linked-item" onclick="event.stopPropagation();window.open(\'/api/report/view?workspace=' + encodeURIComponent(state.workspace) + '&path=' + encodeURIComponent(r.path) + '\',\'_blank\')">' +
+                '<div class="linked-item-main">' + escapeHtml(r.path) + '</div>' +
+                '<div class="linked-item-sub"><span class="linked-time">' + escapeHtml(r.timestamp) + '</span> · ' + escapeHtml(detailText) + '</div>' +
+                '</div>';
+        });
+        html += '</div>';
+        body.innerHTML = html;
+    }
+    var label = query.split('/').pop();
+    showModal('\u{1F517} 关联报表: ' + label);
+    document.getElementById('modalFooter').innerHTML = '';
+}
+
+async function showReportMeta(path) {
+    var res = await fetch('/api/report/meta?workspace=' + encodeURIComponent(state.workspace) + '&path=' + encodeURIComponent(path));
+    var meta = await res.json();
+    var body = document.getElementById('modalBody');
+    if (!meta || Object.keys(meta).length === 0) {
+        body.innerHTML = '<div class="empty-state" style="padding:30px"><div>暂无元数据</div></div>';
+    } else {
+        var html = '<div class="meta-panel">';
+        html += '<div class="meta-section"><div class="meta-label">脚本</div><div class="meta-value code-block">' + escapeHtml(meta.script || '') + '</div></div>';
+        html += '<div class="meta-section"><div class="meta-label">时间</div><div class="meta-value">' + escapeHtml(meta.timestamp || '') + '</div></div>';
+        if (meta.cmd) html += '<div class="meta-section"><div class="meta-label">命令</div><div class="meta-value code-block">' + escapeHtml(meta.cmd) + '</div></div>';
+        if (meta.params && Object.keys(meta.params).length > 0) {
+            html += '<div class="meta-section"><div class="meta-label">参数</div><div class="meta-value">';
+            for (var k in meta.params) html += '<div>' + escapeHtml(k) + ' = ' + escapeHtml(meta.params[k]) + '</div>';
+            html += '</div></div>';
         }
-    });
+        if (meta.files && meta.files.length > 0) {
+            html += '<div class="meta-section"><div class="meta-label">涉及文件</div><div class="meta-value">';
+            meta.files.forEach(function(f) { html += '<div class="meta-file">\u{1F4C4} ' + escapeHtml(f) + '</div>'; });
+            html += '</div></div>';
+        }
+        html += '</div>';
+        body.innerHTML = html;
+    }
+    showModal('\u2139\uFE0F ' + path.split('/').pop());
+    document.getElementById('modalFooter').innerHTML = '';
 }
 
 function setupDragAndDrop() {
-    var items = document.querySelectorAll('.file-card[draggable], .list-row[draggable]');
-    items.forEach(function(item) {
+    document.querySelectorAll('.file-card[draggable], .list-row[draggable]').forEach(function(item) {
         item.addEventListener('dragstart', function(e) {
             e.dataTransfer.setData('text/plain', item.dataset.name);
             e.dataTransfer.effectAllowed = 'move';
@@ -574,28 +574,19 @@ function setupDragAndDrop() {
             document.querySelectorAll('.drag-over').forEach(function(el) { el.classList.remove('drag-over'); });
         });
     });
-    var dirs = document.querySelectorAll('.file-card.is-dir[draggable], .list-row.is-dir[draggable]');
-    dirs.forEach(function(dir) {
+    document.querySelectorAll('.file-card.is-dir[draggable], .list-row.is-dir[draggable]').forEach(function(dir) {
         dir.addEventListener('dragover', function(e) { e.preventDefault(); dir.classList.add('drag-over'); });
         dir.addEventListener('dragleave', function() { dir.classList.remove('drag-over'); });
         dir.addEventListener('drop', function(e) {
-            e.preventDefault();
-            e.stopPropagation();
+            e.preventDefault(); e.stopPropagation();
             dir.classList.remove('drag-over');
-            var fileName = e.dataTransfer.getData('text/plain');
-            var destPath = state.currentPath ? state.currentPath + '/' + dir.dataset.name : dir.dataset.name;
-            moveFile(fileName, destPath);
+            moveFile(e.dataTransfer.getData('text/plain'), state.currentPath ? state.currentPath + '/' + dir.dataset.name : dir.dataset.name);
         });
     });
     document.querySelectorAll('.crumb:not(.current)').forEach(function(crumb) {
         crumb.addEventListener('dragover', function(e) { e.preventDefault(); crumb.classList.add('drag-over'); });
         crumb.addEventListener('dragleave', function() { crumb.classList.remove('drag-over'); });
-        crumb.addEventListener('drop', function(e) {
-            e.preventDefault();
-            crumb.classList.remove('drag-over');
-            var fileName = e.dataTransfer.getData('text/plain');
-            moveFile(fileName, '');
-        });
+        crumb.addEventListener('drop', function(e) { e.preventDefault(); crumb.classList.remove('drag-over'); moveFile(e.dataTransfer.getData('text/plain'), ''); });
     });
 }
 
@@ -604,13 +595,7 @@ async function moveFile(fileName, destPath) {
     await fetch('/api/file/move', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            workspace: state.workspace,
-            category: state.category,
-            path: srcPath,
-            destCategory: state.category,
-            destPath: destPath
-        })
+        body: JSON.stringify({workspace: state.workspace, category: state.category, path: srcPath, destCategory: state.category, destPath: destPath})
     });
     loadFiles();
 }
@@ -625,18 +610,12 @@ async function updateBadges() {
     }
 }
 
-function refreshAll() {
-    loadFiles();
-}
+function refreshAll() { loadFiles(); }
 
 function showModal(title, footer) {
     document.getElementById('modalTitle').textContent = title;
     document.getElementById('modalOverlay').classList.add('show');
-    if (footer) {
-        document.getElementById('modalFooter').innerHTML = footer;
-    } else {
-        document.getElementById('modalFooter').innerHTML = '';
-    }
+    document.getElementById('modalFooter').innerHTML = footer || '';
 }
 
 function closeModal() {
@@ -644,25 +623,16 @@ function closeModal() {
     document.getElementById('modalFooter').innerHTML = '';
 }
 
-document.getElementById('modalOverlay').addEventListener('click', function(e) {
-    if (e.target === this) closeModal();
-});
-
+document.getElementById('modalOverlay').addEventListener('click', function(e) { if (e.target === this) closeModal(); });
 document.querySelector('.modal-close').addEventListener('click', closeModal);
 
 function openWorkspaceManager() {
     var body = document.getElementById('modalBody');
     var html = state.workspaces.map(function(ws) {
-        return '<div class="ws-manager-item">' +
-            '<div>' +
-                '<span class="ws-name">\u{1F4C1} ' + escapeHtml(ws.name) + '</span>' +
-                '<span class="ws-stats">数据:' + ws.dataCount + ' 脚本:' + ws.scriptsCount + ' 报表:' + ws.reportsCount + '</span>' +
-            '</div>' +
-            '<div class="ws-manager-actions">' +
-                '<button class="action-btn" onclick="renameWorkspace(\'' + escapeAttr(ws.name) + '\')">\u270F\uFE0F</button>' +
-                '<button class="action-btn danger" onclick="deleteWorkspace(\'' + escapeAttr(ws.name) + '\')">\u{1F5D1}</button>' +
-            '</div>' +
-        '</div>';
+        return '<div class="ws-manager-item"><div><span class="ws-name">\u{1F4C1} ' + escapeHtml(ws.name) + '</span>' +
+            '<span class="ws-stats">数据:' + ws.dataCount + ' 脚本:' + ws.scriptsCount + ' 报表:' + ws.reportsCount + '</span></div>' +
+            '<div class="ws-manager-actions"><button class="action-btn" onclick="renameWorkspace(\'' + escapeAttr(ws.name) + '\')">\u270F\uFE0F</button>' +
+            '<button class="action-btn danger" onclick="deleteWorkspace(\'' + escapeAttr(ws.name) + '\')">\u{1F5D1}</button></div></div>';
     }).join('');
     body.innerHTML = html || '<div class="empty-state">暂无工作空间</div>';
     showModal('工作空间管理');
@@ -673,34 +643,21 @@ function openWorkspaceManager() {
 async function createWorkspace() {
     var name = prompt('请输入工作空间名称:');
     if (!name) return;
-    var res = await fetch('/api/workspaces', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: name})
-    });
+    var res = await fetch('/api/workspaces', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: name})});
     var data = await res.json();
     if (data.error) { alert(data.error); return; }
-    state.workspace = name;
-    state.currentPath = '';
-    await loadWorkspaces();
-    await loadFiles();
-    openWorkspaceManager();
+    state.workspace = name; state.currentPath = '';
+    await loadWorkspaces(); await loadFiles(); openWorkspaceManager();
 }
 
 async function renameWorkspace(name) {
     var newName = prompt('请输入新名称:', name);
     if (!newName || newName === name) return;
-    var res = await fetch('/api/workspaces/' + encodeURIComponent(name), {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({name: newName})
-    });
+    var res = await fetch('/api/workspaces/' + encodeURIComponent(name), {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: newName})});
     var data = await res.json();
     if (data.error) { alert(data.error); return; }
     if (state.workspace === name) state.workspace = newName;
-    await loadWorkspaces();
-    await loadFiles();
-    openWorkspaceManager();
+    await loadWorkspaces(); await loadFiles(); openWorkspaceManager();
 }
 
 async function deleteWorkspace(name) {
@@ -709,9 +666,7 @@ async function deleteWorkspace(name) {
     var data = await res.json();
     if (data.error) { alert(data.error); return; }
     if (state.workspace === name) state.workspace = 'Default';
-    await loadWorkspaces();
-    await loadFiles();
-    openWorkspaceManager();
+    await loadWorkspaces(); await loadFiles(); openWorkspaceManager();
 }
 
 function escapeHtml(str) {
@@ -724,16 +679,12 @@ function escapeAttr(str) {
     return String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 }
 
-document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') closeModal();
-});
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeModal(); });
 
-// Custom select: input + dropdown
+// Custom select
 document.addEventListener('click', function(e) {
     var wrap = e.target.closest('.custom-select-wrap');
-    document.querySelectorAll('.custom-select-wrap.open').forEach(function(w) {
-        if (w !== wrap) w.classList.remove('open');
-    });
+    document.querySelectorAll('.custom-select-wrap.open').forEach(function(w) { if (w !== wrap) w.classList.remove('open'); });
 });
 
 document.addEventListener('focus', function(e) {
@@ -777,22 +728,9 @@ function renderCustomDropdown(wrap, filter) {
     var options;
     try { options = JSON.parse(input.dataset.options); } catch(ex) { options = []; }
     var val = input.value.toLowerCase();
-    var filtered;
-    if (filter && val) {
-        filtered = options.filter(function(o) {
-            return o.v.toLowerCase().indexOf(val) !== -1 || o.n.toLowerCase().indexOf(val) !== -1;
-        });
-    } else {
-        filtered = options;
-    }
-    if (filtered.length === 0) {
-        dropdown.innerHTML = '<div class="custom-select-empty">无匹配项</div>';
-        return;
-    }
+    var filtered = filter && val ? options.filter(function(o) { return o.v.toLowerCase().indexOf(val) !== -1 || o.n.toLowerCase().indexOf(val) !== -1; }) : options;
+    if (filtered.length === 0) { dropdown.innerHTML = '<div class="custom-select-empty">无匹配项</div>'; return; }
     dropdown.innerHTML = filtered.map(function(o) {
-        return '<div class="custom-select-option" data-value="' + escapeAttr(o.v) + '">' +
-            '<span class="option-name">' + escapeHtml(o.n) + '</span>' +
-            '<span class="option-path">' + escapeHtml(o.v) + '</span>' +
-            '</div>';
+        return '<div class="custom-select-option" data-value="' + escapeAttr(o.v) + '"><span class="option-name">' + escapeHtml(o.n) + '</span><span class="option-path">' + escapeHtml(o.v) + '</span></div>';
     }).join('');
 }

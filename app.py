@@ -267,6 +267,10 @@ def file_delete():
             shutil.rmtree(full_path)
         else:
             full_path.unlink()
+            if category == "reports":
+                meta_path = full_path.parent / f"{full_path.stem}.meta.json"
+                if meta_path.exists():
+                    meta_path.unlink()
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -354,11 +358,17 @@ def script_meta():
     try:
         content = full_path.read_text(encoding="utf-8", errors="replace")
         meta = {"params": [], "description": ""}
-        if content.startswith('"""') or content.startswith("'''"):
-            quote = content[:3]
-            end = content.find(quote, 3)
+        lines = content.split("\n")
+        start_idx = 0
+        if lines and lines[0].startswith("#!"):
+            start_idx = 1
+        trimmed = "\n".join(lines[start_idx:])
+        if trimmed.lstrip().startswith('"""') or trimmed.lstrip().startswith("'''"):
+            ltrimmed = trimmed.lstrip()
+            quote = ltrimmed[:3]
+            end = ltrimmed.find(quote, 3)
             if end != -1:
-                docstring = content[3:end].strip()
+                docstring = ltrimmed[3:end].strip()
                 meta["description"] = docstring
                 try:
                     parsed = yaml.safe_load(docstring)
@@ -370,6 +380,14 @@ def script_meta():
         return jsonify(meta)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+def _collect_files(ws_dirs, script_path, params):
+    files = [f"scripts/{script_path}"]
+    for key, value in params.items():
+        if value and isinstance(value, str) and (value.startswith("data/") or value.startswith("scripts/")):
+            if value not in files:
+                files.append(value)
+    return files
 
 @app.route("/api/script/execute", methods=["POST"])
 def script_execute():
@@ -398,18 +416,18 @@ def script_execute():
         cmd.extend([key, str(value)])
 
     def generate():
-        yield f"data: {json.dumps({'msg': f'▶ 开始执行: scripts/{script_path}', 'progress': 0})}\n\n"
+        yield f"data: {json.dumps({'msg': f'▶ 开始执行: scripts/{script_path}', 'progress': 0}, ensure_ascii=False)}\n\n"
         try:
-            process = subprocess.Popen(
+            result = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
+                capture_output=True,
                 text=True,
                 cwd=str(ws_dirs["root"]),
-                bufsize=1,
+                timeout=120,
             )
-            progress = 0.1
-            for line in process.stdout:
+            progress = 0.5
+            output = (result.stdout or "") + (result.stderr or "")
+            for line in output.splitlines():
                 line = line.rstrip("\n")
                 if not line:
                     continue
@@ -418,6 +436,8 @@ def script_execute():
                     if msg_data.get("status") == "success":
                         report_file = msg_data.get("report", report_name)
                         meta_data = {
+                            "cmd": " ".join(cmd),
+                            "files": _collect_files(ws_dirs, script_path, params),
                             "script": script_path,
                             "params": params,
                             "report": report_file,
@@ -428,28 +448,37 @@ def script_execute():
                             meta_path.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
                         except Exception:
                             pass
-                        yield f"data: {json.dumps({'progress': 1.0, 'msg': f'✅ 报表已生成: {report_file}', 'status': 'success', 'report': report_file})}\n\n"
+                        yield f"data: {json.dumps({'progress': 1.0, 'msg': f'✅ 报表已生成: {report_file}', 'status': 'success', 'report': report_file}, ensure_ascii=False)}\n\n"
                     elif msg_data.get("status") == "error":
                         error_msg = msg_data.get("msg", "Unknown")
-                        yield f"data: {json.dumps({'msg': f'❌ 错误: {error_msg}', 'status': 'error'})}\n\n"
-                    elif "progress" in msg_data:
-                        progress = msg_data["progress"]
-                        yield f"data: {json.dumps({'progress': progress, 'msg': msg_data.get('msg', '')})}\n\n"
+                        yield f"data: {json.dumps({'msg': f'❌ 错误: {error_msg}', 'status': 'error'}, ensure_ascii=False)}\n\n"
                     else:
-                        yield f"data: {json.dumps({'msg': line, 'progress': progress})}\n\n"
+                        yield f"data: {json.dumps({'msg': msg_data.get('msg', line), 'progress': msg_data.get('progress', progress)}, ensure_ascii=False)}\n\n"
                 except json.JSONDecodeError:
                     progress = min(progress + 0.05, 0.95)
-                    yield f"data: {json.dumps({'msg': line, 'progress': progress})}\n\n"
-            process.wait(timeout=60)
-            if process.returncode != 0 and progress < 1.0:
-                yield f"data: {json.dumps({'msg': f'⚠ 进程退出码: {process.returncode}', 'status': 'error'})}\n\n"
+                    yield f"data: {json.dumps({'msg': line, 'progress': progress}, ensure_ascii=False)}\n\n"
+            if result.returncode != 0:
+                yield f"data: {json.dumps({'msg': f'⚠ 进程退出码: {result.returncode}', 'status': 'error'}, ensure_ascii=False)}\n\n"
             elif progress < 1.0:
-                yield f"data: {json.dumps({'progress': 1.0, 'msg': '✅ 执行完成', 'status': 'success', 'report': report_name})}\n\n"
+                report_file = report_name
+                meta_data = {
+                    "cmd": " ".join(cmd),
+                    "files": _collect_files(ws_dirs, script_path, params),
+                    "script": script_path,
+                    "params": params,
+                    "report": report_file,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                meta_path = output_dir / f"{Path(report_file).stem}.meta.json"
+                try:
+                    meta_path.write_text(json.dumps(meta_data, ensure_ascii=False, indent=2), encoding="utf-8")
+                except Exception:
+                    pass
+                yield f"data: {json.dumps({'progress': 1.0, 'msg': '✅ 执行完成', 'status': 'success', 'report': report_name}, ensure_ascii=False)}\n\n"
         except subprocess.TimeoutExpired:
-            process.kill()
-            yield f"data: {json.dumps({'msg': '⏰ 执行超时 (60s)，已终止', 'status': 'error'})}\n\n"
+            yield f"data: {json.dumps({'msg': '⏰ 执行超时 (120s)，已终止', 'status': 'error'}, ensure_ascii=False)}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'msg': f'❌ 异常: {str(e)}', 'status': 'error'})}\n\n"
+            yield f"data: {json.dumps({'msg': f'❌ 异常: {str(e)}', 'status': 'error'}, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
 
     return Response(generate(), mimetype="text/event-stream",
@@ -566,6 +595,54 @@ def delete_report():
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/api/linked-reports", methods=["GET"])
+def linked_reports():
+    ws_name = request.args.get("workspace", "Default")
+    query = request.args.get("query", "")
+    query_type = request.args.get("type", "")
+    reports_dir = WORKSPACES_DIR / ws_name / "reports"
+    if not reports_dir.exists():
+        return jsonify([])
+    results = []
+    for meta_file in sorted(reports_dir.glob("*.meta.json")):
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        report_name = meta_file.stem.replace(".meta", "")
+        report_path = f"{report_name}.html"
+        report_full = reports_dir / report_path
+        if not report_full.exists():
+            continue
+        match = False
+        if query_type == "script" and meta.get("script") == query:
+            match = True
+        elif query_type == "file":
+            files = meta.get("files") or []
+            if query in files:
+                match = True
+            else:
+                for v in (meta.get("params") or {}).values():
+                    if isinstance(v, str) and v == query:
+                        match = True
+                        break
+        if match:
+            data_files = [f for f in (meta.get("files") or []) if f.startswith("data/")]
+            if not data_files:
+                for v in (meta.get("params") or {}).values():
+                    if isinstance(v, str) and v.startswith("data/") and v not in data_files:
+                        data_files.append(v)
+            results.append({
+                "report": report_name,
+                "path": report_path,
+                "script": meta.get("script", ""),
+                "params": meta.get("params", {}),
+                "timestamp": meta.get("timestamp", ""),
+                "files": meta.get("files", []),
+                "data_files": data_files,
+            })
+    return jsonify(results)
 
 if __name__ == "__main__":
     ensure_workspaces()
