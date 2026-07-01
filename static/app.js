@@ -734,3 +734,195 @@ function renderCustomDropdown(wrap, filter) {
         return '<div class="custom-select-option" data-value="' + escapeAttr(o.v) + '"><span class="option-name">' + escapeHtml(o.n) + '</span><span class="option-path">' + escapeHtml(o.v) + '</span></div>';
     }).join('');
 }
+
+// AI Terminal
+var aiTerminal = null;
+var aiTerminalWs = null;
+var aiTerminalFit = null;
+var aiTerminalOpen = false;
+
+function toggleAiTerminal() {
+    var panel = document.getElementById('ai-terminal-panel');
+    aiTerminalOpen = !aiTerminalOpen;
+    if (aiTerminalOpen) {
+        panel.classList.remove('hidden');
+        document.getElementById('aiTerminalBtn').classList.add('active');
+        if (!aiTerminal) initAiTerminal();
+        setTimeout(function() { aiTerminalFit && aiTerminalFit.fit(); }, 100);
+    } else {
+        panel.classList.add('hidden');
+        document.getElementById('aiTerminalBtn').classList.remove('active');
+    }
+}
+
+function initAiTerminal() {
+    var container = document.getElementById('ai-terminal-container');
+    if (!container) return;
+    var Term = window.Terminal;
+    var FitAddon = window.FitAddon;
+    var WebLinksAddon = window.WebLinksAddon;
+
+    if (!Term) {
+        console.error('xterm.js Terminal not loaded');
+        return;
+    }
+
+    aiTerminal = new Term({
+        theme: {
+            background: '#0d1117',
+            foreground: '#e6edf3',
+            cursor: '#58a6ff',
+            cursorAccent: '#0d1117',
+            selectionBackground: '#264f78',
+            black: '#0d1117',
+            red: '#f85149',
+            green: '#3fb950',
+            yellow: '#d29922',
+            blue: '#58a6ff',
+            magenta: '#bc8cff',
+            cyan: '#39c5cf',
+            white: '#e6edf3',
+            brightBlack: '#6e7681',
+            brightRed: '#f85149',
+            brightGreen: '#3fb950',
+            brightYellow: '#d29922',
+            brightBlue: '#58a6ff',
+            brightMagenta: '#bc8cff',
+            brightCyan: '#56d4dd',
+            brightWhite: '#f0f6fc'
+        },
+        fontFamily: '"Cascadia Code", "Fira Code", "SF Mono", monospace',
+        fontSize: 13,
+        cursorBlink: true,
+        allowProposedApi: true,
+    });
+
+    aiTerminalFit = new FitAddon.FitAddon();
+    aiTerminal.loadAddon(aiTerminalFit);
+    aiTerminal.loadAddon(new WebLinksAddon.WebLinksAddon());
+
+    aiTerminal.open(container);
+
+    setTimeout(function() {
+        if (aiTerminalFit) {
+            aiTerminalFit.fit();
+            var size = aiTerminalFit.proposeDimensions();
+            if (size) {
+                console.log('Terminal size:', size.cols, 'x', size.rows);
+            }
+        }
+    }, 200);
+
+    var savedCmd = localStorage.getItem('ai_cli_command') || '';
+    document.getElementById('aiCommandInput').value = savedCmd;
+
+    aiTerminal.onData(function(data) {
+        if (aiTerminalWs && aiTerminalWs.readyState === 1) {
+            aiTerminalWs.send(JSON.stringify({type: 'input', data: data}));
+        }
+    });
+
+    aiTerminal.onResize(function(size) {
+        if (aiTerminalWs && aiTerminalWs.readyState === 1) {
+            aiTerminalWs.send(JSON.stringify({type: 'resize', rows: size.rows, cols: size.cols}));
+        }
+    });
+
+    connectAiTerminal();
+
+    window.addEventListener('resize', function() {
+        if (aiTerminalOpen && aiTerminalFit) aiTerminalFit.fit();
+    });
+}
+
+function connectAiTerminal() {
+    if (aiTerminalWs) {
+        try { aiTerminalWs.close(); } catch(e) {}
+    }
+
+    setAiStatus('connecting');
+    var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = protocol + '//' + location.hostname + ':5121';
+    aiTerminalWs = new WebSocket(wsUrl);
+
+    var savedCmd = localStorage.getItem('ai_cli_command') || '';
+    var command = savedCmd || 'claude';
+
+    aiTerminalWs.onopen = function() {
+        aiTerminalWs.send(JSON.stringify({
+            workspace: state.workspace,
+            command: command
+        }));
+        setAiStatus('connected');
+        if (aiTerminal) {
+            aiTerminal.focus();
+            setTimeout(function() {
+                if (aiTerminalFit) {
+                    aiTerminalFit.fit();
+                    var size = aiTerminalFit.proposeDimensions();
+                    if (size && aiTerminalWs.readyState === 1) {
+                        aiTerminalWs.send(JSON.stringify({type: 'resize', rows: size.rows, cols: size.cols}));
+                    }
+                }
+            }, 300);
+        }
+    };
+
+    aiTerminalWs.onmessage = function(evt) {
+        if (aiTerminal) {
+            var data = evt.data;
+            try {
+                var msg = JSON.parse(data);
+                if (msg.type === 'exit') {
+                    setAiStatus('disconnected');
+                    aiTerminal.writeln('\r\n\x1b[33m[会话已结束]\x1b[0m');
+                    return;
+                }
+                if (msg.type === 'error') {
+                    aiTerminal.writeln('\r\n\x1b[31m[错误: ' + msg.msg + ']\x1b[0m');
+                    setAiStatus('error');
+                    return;
+                }
+            } catch(e) {}
+            aiTerminal.write(data);
+        }
+    };
+
+    aiTerminalWs.onclose = function() {
+        setAiStatus('disconnected');
+    };
+
+    aiTerminalWs.onerror = function() {
+        setAiStatus('error');
+    };
+}
+
+function setAiStatus(status) {
+    var dot = document.getElementById('aiStatusDot');
+    var text = document.getElementById('aiStatusText');
+    dot.className = 'ai-status-dot';
+    var labels = {connected: '已连接', connecting: '连接中...', disconnected: '已断开', error: '连接失败'};
+    text.textContent = labels[status] || status;
+    if (status === 'connected') dot.classList.add('connected');
+    else if (status === 'connecting') dot.classList.add('connecting');
+    else if (status === 'error') dot.classList.add('error');
+}
+
+function newAiTerminalSession() {
+    if (aiTerminal) aiTerminal.clear();
+    connectAiTerminal();
+}
+
+function toggleAiSettings() {
+    var settings = document.getElementById('aiSettings');
+    settings.classList.toggle('hidden');
+}
+
+function saveAiSettings() {
+    var cmd = document.getElementById('aiCommandInput').value.trim();
+    localStorage.setItem('ai_cli_command', cmd);
+    toggleAiSettings();
+}
+
+// Alias for HTML onclick
+function newAiSession() { newAiTerminalSession(); }

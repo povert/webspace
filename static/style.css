@@ -812,3 +812,94 @@ body {
     .file-card { padding: 12px 8px; }
     #fileBrowser.grid-view { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
+
+/* AI Terminal Panel */
+#ai-terminal-panel {
+    width: 40%;
+    min-width: 360px;
+    max-width: 700px;
+    background: #000;
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    transition: width 0.2s, opacity 0.2s;
+}
+#ai-terminal-panel.hidden {
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    border-left: none;
+}
+.ai-terminal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.ai-terminal-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+.ai-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+}
+.ai-status-dot.connected { background: var(--success); }
+.ai-status-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
+.ai-status-dot.error { background: var(--danger); }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.ai-terminal-actions { display: flex; gap: 4px; }
+.terminal-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+}
+.terminal-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+.ai-terminal-settings {
+    padding: 8px 12px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.ai-terminal-settings.hidden { display: none; }
+.ai-settings-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.ai-settings-row:last-child { margin-bottom: 0; }
+.ai-settings-row label {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.ai-settings-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+#ai-terminal-container {
+    flex: 1;
+    overflow: hidden;
+    background: #000;
+}
+#ai-terminal-container .xterm {
+    padding: 8px;
+}

@@ -5,6 +5,13 @@ import shutil
 import subprocess
 import time
 import yaml
+import pty
+import select
+import struct
+import fcntl
+import termios
+import threading
+import asyncio
 from pathlib import Path
 from flask import Flask, request, jsonify, Response, send_from_directory, render_template
 from flask_cors import CORS
@@ -644,7 +651,126 @@ def linked_reports():
             })
     return jsonify(results)
 
+
+# AI Terminal WebSocket
+async def handle_ai_terminal(websocket):
+    import queue
+    config = {}
+    try:
+        data = await asyncio.wait_for(websocket.recv(), timeout=5)
+        if data:
+            config = json.loads(data)
+    except Exception as e:
+        print(f"[AI Terminal] receive config error: {e}", file=sys.stderr, flush=True)
+
+    workspace = config.get("workspace", "Default")
+    command = config.get("command", "") or os.environ.get("AI_CLI_COMMAND", "claude")
+    ws_dir = str(WORKSPACES_DIR / workspace)
+    if not os.path.isdir(ws_dir):
+        ws_dir = str(WORKSPACES_DIR)
+
+    env = {**os.environ, "TERM": "xterm-256color"}
+    cmd_parts = command.split()
+
+    print(f"[AI Terminal] Starting: command={command}, workspace={workspace}, cwd={ws_dir}", file=sys.stderr, flush=True)
+
+    master_fd, slave_fd = pty.openpty()
+    try:
+        pid = os.fork()
+    except OSError as e:
+        print(f"[AI Terminal] fork failed: {e}", file=sys.stderr, flush=True)
+        await websocket.send(json.dumps({"type": "error", "msg": "fork failed"}))
+        return
+
+    if pid == 0:
+        os.close(master_fd)
+        os.setsid()
+        fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+        os.dup2(slave_fd, 0)
+        os.dup2(slave_fd, 1)
+        os.dup2(slave_fd, 2)
+        if slave_fd > 2:
+            os.close(slave_fd)
+        os.chdir(ws_dir)
+        os.execvpe(cmd_parts[0], cmd_parts, env)
+    else:
+        os.close(slave_fd)
+        closed = threading.Event()
+
+        def pty_to_ws():
+            try:
+                while not closed.is_set():
+                    r, _, _ = select.select([master_fd], [], [], 0.2)
+                    if r:
+                        try:
+                            data = os.read(master_fd, 8192)
+                            if not data:
+                                break
+                            asyncio.run_coroutine_threadsafe(
+                                websocket.send(data.decode("utf-8", errors="replace")),
+                                loop
+                            )
+                        except OSError:
+                            break
+            except Exception:
+                pass
+            closed.set()
+
+        loop = asyncio.get_event_loop()
+        reader = threading.Thread(target=pty_to_ws, daemon=True)
+        reader.start()
+
+        try:
+            while not closed.is_set():
+                try:
+                    msg = await asyncio.wait_for(websocket.recv(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+                except Exception:
+                    break
+                if msg is None:
+                    break
+                try:
+                    obj = json.loads(msg)
+                    if obj.get("type") == "input":
+                        os.write(master_fd, obj["data"].encode("utf-8"))
+                    elif obj.get("type") == "resize":
+                        rows = obj.get("rows", 24)
+                        cols = obj.get("cols", 80)
+                        winsize = struct.pack("HHHH", rows, cols, 0, 0)
+                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+                except json.JSONDecodeError:
+                    os.write(master_fd, msg.encode("utf-8"))
+        except Exception:
+            pass
+        finally:
+            closed.set()
+            try:
+                os.close(master_fd)
+            except Exception:
+                pass
+            try:
+                os.kill(pid, 9)
+                os.waitpid(pid, os.WNOHANG)
+            except Exception:
+                pass
+
+
 if __name__ == "__main__":
     ensure_workspaces()
     print("🚀 数据分析工作台已启动: http://localhost:5120")
+    print("🖥️  AI 终端 WebSocket: ws://localhost:5121")
+
+    import websockets
+
+    async def run_servers():
+        ws_server = await websockets.serve(handle_ai_terminal, "0.0.0.0", 5121)
+        await ws_server.wait_closed()
+
+    def start_ws():
+        asyncio.run(run_servers())
+
+    ws_thread = threading.Thread(target=start_ws, daemon=True)
+    ws_thread.start()
+
     app.run(host="0.0.0.0", port=5120, debug=True)
